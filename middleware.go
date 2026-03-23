@@ -130,18 +130,19 @@ func GetUserFromContext(ctx context.Context) (*AuthUser, bool) {
 }
 
 // ResolveToken validates a token and returns the associated user.
-// Supports demo-token-{email}, guest-token-{uuid}, and impersonate-{uuid} formats.
+// Supports JWT tokens, guest-token-{uuid}, and impersonate-{uuid} formats.
 // This is the centralized token validation function - all token parsing must go through here.
 func ResolveToken(identityDB *sql.DB, token string) (*AuthUser, error) {
 	if token == "" {
 		return nil, fmt.Errorf("empty token")
 	}
 
-	// Validate token length to prevent malformed tokens
-	if len(token) > 512 {
+	// Validate token length to prevent malformed tokens (JWT can be longer than simple tokens)
+	if len(token) > 2048 {
 		return nil, fmt.Errorf("token exceeds maximum length")
 	}
 
+	// Check for impersonate token (database lookup required)
 	if strings.HasPrefix(token, "impersonate-") {
 		var impersonatedEmail, superUserEmail string
 		err := identityDB.QueryRow(`
@@ -165,6 +166,7 @@ func ResolveToken(identityDB *sql.DB, token string) (*AuthUser, error) {
 		return user, nil
 	}
 
+	// Check for guest token (no database lookup)
 	if strings.HasPrefix(token, "guest-token-") {
 		// Guest tokens are valid as-is; create a minimal user object
 		guestID := strings.TrimPrefix(token, "guest-token-")
@@ -176,12 +178,21 @@ func ResolveToken(identityDB *sql.DB, token string) (*AuthUser, error) {
 		}, nil
 	}
 
-	if strings.HasPrefix(token, "demo-token-") {
-		email := strings.TrimPrefix(token, "demo-token-")
-		return lookupUser(identityDB, email)
+	// Try to validate as JWT token (most common case for authenticated users)
+	claims, err := ValidateJWT(token)
+	if err == nil {
+		// JWT is valid, return user from claims
+		return &AuthUser{
+			Email:   claims.Email,
+			Name:    claims.Name,
+			IsAdmin: claims.IsAdmin,
+			Roles:   claims.Roles,
+		}, nil
 	}
 
-	return nil, fmt.Errorf("unrecognized token format")
+	// If JWT validation failed, log the error for debugging
+	log.Printf("JWT validation failed: %v", err)
+	return nil, fmt.Errorf("invalid token")
 }
 
 // lookupUser fetches user details and roles from the identity database.

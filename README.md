@@ -70,19 +70,42 @@ if err != nil {
 }
 ```
 
+### Generating JWT Tokens
+
+```go
+// After successful login/registration
+token, err := auth.GenerateJWT(user.Email, user.Name, user.IsAdmin, user.Roles)
+if err != nil {
+    // Failed to generate token
+}
+
+// Return token to client
+json.NewEncoder(w).Encode(map[string]interface{}{
+    "token": token,
+    "user": user,
+})
+```
+
+### Environment Variables
+
+```bash
+# JWT secret key (REQUIRED in production, has dev default)
+export JWT_SECRET="your-secret-key-here"
+```
+
 ## Token Formats
 
-### Demo Token
+### JWT Token (Primary)
 ```
-demo-token-user@example.com
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6InVzZXJAZXhhbXBsZS5jb20iLCJyb2xlcyI6WyJ1c2VyIl0sImV4cCI6MTcwOTQ1OTIwMH0.signature
 ```
-Resolves to the user record in the database.
+Standard JWT token with email, name, roles, and expiration. Used for all authenticated users.
 
 ### Guest Token
 ```
 guest-token-{uuid}
 ```
-Creates an anonymous guest user.
+Creates an anonymous guest user. No database lookup required.
 
 ### Impersonate Token
 ```

@@ -44,6 +44,7 @@ func Middleware(identityDB *sql.DB) func(http.Handler) http.Handler {
 
 // SSEMiddleware validates a token from the query parameter (for EventSource compatibility).
 // EventSource does not support custom headers so the token must be in the URL.
+// Accepts both SSE-specific tokens and regular JWT tokens for backward compatibility.
 //
 // Usage:
 //
@@ -57,6 +58,24 @@ func SSEMiddleware(identityDB *sql.DB) func(http.Handler) http.Handler {
 				return
 			}
 
+			// Try to validate as SSE token first (preferred)
+			sseClaims, err := ValidateSSEToken(token)
+			if err == nil {
+				// Valid SSE token - convert to AuthUser
+				// Note: SSE tokens don't include roles/admin, minimal user info
+				user := &AuthUser{
+					Email:   sseClaims.Email,
+					Name:    sseClaims.Email, // SSE tokens don't include name
+					IsAdmin: false,           // SSE tokens are read-only
+					Roles:   []string{},
+				}
+				log.Printf("✅ SSE authenticated (SSE token): %s for %s/%s", user.Email, sseClaims.AppID, sseClaims.GameID)
+				ctx := context.WithValue(r.Context(), userContextKey, *user)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+
+			// Fall back to regular JWT token validation (for backward compatibility)
 			user, err := ResolveToken(identityDB, token)
 			if err != nil {
 				log.Printf("❌ SSE auth failed for %s: %v", r.URL.Path, err)
@@ -64,7 +83,7 @@ func SSEMiddleware(identityDB *sql.DB) func(http.Handler) http.Handler {
 				return
 			}
 
-			log.Printf("✅ SSE authenticated: %s", user.Email)
+			log.Printf("✅ SSE authenticated (regular JWT): %s", user.Email)
 			ctx := context.WithValue(r.Context(), userContextKey, *user)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

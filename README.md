@@ -86,6 +86,38 @@ json.NewEncoder(w).Encode(map[string]interface{}{
 })
 ```
 
+### Generating SSE Tokens
+
+For Server-Sent Events (SSE) connections, use short-lived tokens:
+
+```go
+// Generate 5-minute SSE token for a specific game session
+sseToken, err := auth.GenerateSSEToken(user.Email, "tic-tac-toe", gameID)
+if err != nil {
+    // Failed to generate SSE token
+}
+
+// Return to client
+json.NewEncoder(w).Encode(map[string]interface{}{
+    "sseToken": sseToken,
+    "expiresIn": 300, // 5 minutes
+})
+```
+
+Client usage:
+```javascript
+// Request SSE token first
+const response = await fetch('/api/sse-token', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${mainJWT}` },
+    body: JSON.stringify({ appId: 'tic-tac-toe', gameId: '123' })
+});
+const { sseToken } = await response.json();
+
+// Use SSE token in EventSource
+const eventSource = new EventSource(`/api/game/123/stream?token=${sseToken}`);
+```
+
 ### Environment Variables
 
 ```bash
@@ -95,11 +127,17 @@ export JWT_SECRET="your-secret-key-here"
 
 ## Token Formats
 
-### JWT Token (Primary)
+### JWT Token (Primary - 24 hours)
 ```
 eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6InVzZXJAZXhhbXBsZS5jb20iLCJyb2xlcyI6WyJ1c2VyIl0sImV4cCI6MTcwOTQ1OTIwMH0.signature
 ```
-Standard JWT token with email, name, roles, and expiration. Used for all authenticated users.
+Standard JWT token with email, name, roles, and expiration. Used for all authenticated API calls via Authorization header.
+
+### SSE Token (Short-Lived - 5 minutes)
+```
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6InVzZXJAZXhhbXBsZS5jb20iLCJhcHBfaWQiOiJ0aWMtdGFjLXRvZSIsImdhbWVfaWQiOiIxMjMiLCJzY29wZSI6InNzZSIsImV4cCI6MTcwOTQ1OTUwMH0.signature
+```
+Temporary token specifically for SSE/EventSource connections. Contains app_id, game_id, and scope="sse". Passed via query parameter since EventSource cannot send custom headers.
 
 ### Guest Token
 ```
